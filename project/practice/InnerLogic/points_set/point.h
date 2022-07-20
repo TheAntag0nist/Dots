@@ -2,7 +2,7 @@
 #include "imgui.h"
 
 
-struct point {
+typedef struct point {
 	int id;
 	ImVec2 position;
 
@@ -13,4 +13,4 @@ struct point {
 
 		return false;
 	}
-};
+} point;

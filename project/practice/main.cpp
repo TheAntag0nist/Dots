@@ -2,13 +2,19 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include "FileDialog/ImGuiFileDialog.h"
+
 #include <windows.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <fstream>
-#include <string>
 #include <sstream>
 #include <iomanip>
+#include <fstream>
+#include <string>
+#include <list>
+
+#include "InnerLogic/helpers/processing_helper.h"
+#include "InnerLogic/points_set/points_set.h"
+#include "InnerLogic/helpers/parser_helper.h"
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <GLES2/gl2.h>
 #endif
@@ -24,6 +30,19 @@
 ImVec4 clear_color = ImVec4(0.42f, 0.42f, 0.42f, 1.00f);
 std::string glfw_opengl_version = "";
 GLFWwindow* window = nullptr;
+
+bool is_grid_active = true;
+bool show_position = true;
+
+ImColor white(1.0f, 1.0f, 1.0f);
+ImColor dark_grey(0.4f, 0.4f, 0.4f);
+
+ImColor red(1.0f, 0.0f, 0.0f);
+ImColor green(0.0f, 1.0f, 0.0f);
+
+points_set<point> set_of_points;
+std::list<float> distances_info;
+int point_id = -1;
 #pragma endregion
 
 // Prototypes
@@ -50,11 +69,16 @@ void OpenExportFileDialog();
 void MenuTree();
 void Viewport();
 void ViewportRender();
+void DrawGrid(ImDrawList* drawList);
+void DrawMainAxes(ImDrawList* drawList, float half_width,
+    float width, float half_height);
+void DrawDividers(ImDrawList* drawList,
+    float height, float width, float half_width, float half_height);
 
 void OnImport(std::string importPath);
 void OnExport(std::string exportPath);
 
-void DrawPoint(ImColor color, ImVec2 position, ImDrawList* drawList);
+void DrawPoint(ImColor color, ImDrawList* drawList, ImVec2 realPos);
 
 std::string GetStringFromVec2(ImVec2 vec);
 #pragma endregion
@@ -225,19 +249,90 @@ void Viewport() {
 
 void ViewportRender() {
     ImDrawList* drawList = ImGui::GetWindowDrawList();
+    // Draw Grid
+    DrawGrid(drawList);
 
     // Draw points Here
-    DrawPoint(ImColor(0.0f, 1.0f, 0.0f), ImVec2(420, 420), drawList);
-    DrawPoint(ImColor(1.0f, 0.0f, 0.0f), ImVec2(520, 520), drawList);
-    DrawPoint(ImColor(0.0f, 1.0f, 0.0f), ImVec2(620, 620), drawList);
+    if (set_of_points.get_size() > 0) {
+        auto item = set_of_points[0];
+        int id = 0;
+
+        while(item != nullptr) {
+            if(id != point_id)
+                DrawPoint( green, drawList, item->data.position);
+            else
+                DrawPoint( red, drawList, item->data.position);
+            item = item->next;
+            ++id;
+        }
+    }
+}
+
+void DrawGrid(ImDrawList* drawList) {
+    const float height = GetWindowHeight();
+    const float width = GetWindowWidth();
+    const float half_height = height / 2.0f;
+    const float half_width = 0.75f * width / 2.0f + 0.25f * width;
+
+    DrawMainAxes(drawList, half_width, width, half_height);
+    DrawDividers(drawList,height, width, half_width, half_height);
+
+    // Add Main Lines For X and Y
+    ImColor white(0.7f, 0.7f, 0.7f);
+    drawList->AddLine(ImVec2(half_width, 0), ImVec2(half_width, height), ImU32(white));
+    drawList->AddLine(ImVec2(0, half_height), ImVec2(width, half_height), ImU32(white));
+}
+
+void DrawMainAxes(ImDrawList* drawList, float half_width, float width, float half_height) {
+    std::string x = "x";
+    std::string y = "y";
+
+    // Add Y Text
+    drawList->AddText(ImVec2(half_width + 4.0f, 20.0f), white, y.c_str());
+    // Add X Text
+    drawList->AddText(ImVec2(width - 20.0f, half_height), white, x.c_str());
+}
+
+void DrawDividers(ImDrawList* drawList, float height, float width, float half_width, float half_height) {
+    ImVec2 center(half_width, half_height);
+    // X Axis Dividers
+    for (int i = 1; i < 12; ++i) {
+        // Draw Grid Lines
+        if (is_grid_active) {
+            drawList->AddLine(ImVec2(center.x + 50.0f * i, 0), ImVec2(center.x + 50.0f * i, height), ImU32(dark_grey));
+            drawList->AddLine(ImVec2(center.x - 50.0f * i, 0), ImVec2(center.x - 50.0f * i, height), ImU32(dark_grey));
+        }
+
+        drawList->AddLine(ImVec2(center.x + 50.0f * i, center.y + 4.0f), ImVec2(center.x + 50.0f * i, center.y - 4.0f), ImU32(white));
+        drawList->AddLine(ImVec2(center.x - 50.0f * i, center.y + 4.0f), ImVec2(center.x - 50.0f * i, center.y - 4.0f), ImU32(white));
+    }
+    // Y Axis Dividers
+    for (int i = 1; i < 12; ++i) {
+        // Draw Grid Lines
+        if (is_grid_active) {
+            drawList->AddLine(ImVec2(0, center.y + 50.0f * i), ImVec2(width, center.y + 50.0f * i), ImU32(dark_grey));
+            drawList->AddLine(ImVec2(0, center.y - 50.0f * i), ImVec2(width, center.y - 50.0f * i), ImU32(dark_grey));
+        }
+
+        drawList->AddLine(ImVec2(center.x + 4.0f, center.y + 50.0f * i), ImVec2(center.x - 4.0f, center.y + 50.0f * i), ImU32(white));
+        drawList->AddLine(ImVec2(center.x + 4.0f, center.y - 50.0f * i), ImVec2(center.x - 4.0f, center.y - 50.0f * i), ImU32(white));
+    }
 }
 
 void CreateButtons() {
     if (ImGui::Button("Import Points", ImVec2(GetWindowWidth() * 0.2f, 20)))
-        ImGuiFileDialog::Instance()->OpenDialog("Import File Dialog", "Choose File", ".pts,.txt", ".");
+        ImGuiFileDialog::Instance()->OpenDialog("Import File Dialog", "Choose File", ".txt,.pts", ".");
 
     if (ImGui::Button("Export Points", ImVec2(GetWindowWidth() * 0.2f, 20)))
-        ImGuiFileDialog::Instance()->OpenDialog("Export File Dialog", "Choose Path", ".pts,.txt", ".");
+        ImGuiFileDialog::Instance()->OpenDialog("Export File Dialog", "Choose Path", ".txt,.pts", ".");
+
+    ImGui::Checkbox("Activating the Grid", &is_grid_active);
+    ImGui::Checkbox("Show Position", &show_position);
+
+    if(point_id >= 0)
+        ImGui::Text("Point ID with Lowest Summ Dist: %d", point_id);
+    else
+        ImGui::Text("Point ID with Lowest Summ Dist: unknown");
 
     OpenImportFileDialog();
     OpenExportFileDialog();
@@ -276,24 +371,48 @@ void OpenExportFileDialog() {
 }
 
 void OnImport(std::string importPath) {
+    set_of_points.clear();
+
     std::ifstream file(importPath);
+    std::string line;
+    int id = 0;
+
     if (file.is_open()) {
         // Try parse file
+        while (std::getline(file, line)) {
+            auto pt = get_point(line);
+            pt.id = id;
+            set_of_points.push(pt);
+            ++id;
+        }
     }
+
+    point_id = slow_algorithm(set_of_points);
+    distances_info = get_distances(set_of_points);
 }
 
 void OnExport(std::string exportPath) {
     std::ofstream file(exportPath);
     if (file.is_open()) {
-        // Try parse file
+        for (int i = 0; i < set_of_points.get_size(); ++i) {
+            auto item = set_of_points[i];
+            file << item->data.position.x << "\t" << item->data.position.y << std::endl;
+        }
     }
 }
 
-void DrawPoint(ImColor color, ImVec2 position, ImDrawList* drawList) {
+void DrawPoint(ImColor color, ImDrawList* drawList, ImVec2 realPos) {
+    const float height = GetWindowHeight();
+    const float width = GetWindowWidth();
+    const float half_height = height / 2.0f;
+    const float half_width = 0.75f * width / 2.0f + 0.25f * width;
+
+    ImVec2 position(half_width + realPos.x, half_height - realPos.y);
+
     ImFont* font_current = ImGui::GetFont();
-    ImColor white(1.0f, 1.0f, 1.0f);
     ImVec2 text_position(position.x + 4.0f, position.y - 16.0f);
-    drawList->AddText(text_position, white, GetStringFromVec2(position).c_str());
+    if(show_position)
+        drawList->AddText(text_position, white, GetStringFromVec2(realPos).c_str());
     drawList->AddCircleFilled(position, 2.0f, ImU32(color), 16);
 }
 
@@ -307,7 +426,7 @@ std::string GetStringFromVec2(ImVec2 vec) {
 
 void CreatePointsTree() {
     const float TEXT_BASE_HEIGHT = ImGui::GetTextLineHeightWithSpacing();
-    const int columns_cnt = 4;
+    const int columns_cnt = 3;
 
     // Options
     static ImGuiTableFlags flags =
@@ -315,27 +434,39 @@ void CreatePointsTree() {
         | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_NoBordersInBody
         | ImGuiTableFlags_ScrollY;
 
-    if (ImGui::TreeNode("Points Tree")) {
-        // Table with nodes
-        if (ImGui::BeginTable("Points", columns_cnt, flags, ImVec2(0.0f, TEXT_BASE_HEIGHT * 15), 0.0f)) {
-            // Fill Info about cols
-            ImGui::TableSetupColumn("ID");
-            ImGui::TableSetupColumn("X Pos");
-            ImGui::TableSetupColumn("Y Pos");
-            ImGui::TableSetupColumn("Summ Distance");
-            ImGui::TableSetupScrollFreeze(0, 1); // Make row always visible
-            ImGui::TableHeadersRow();
+    // Table with nodes
+    if (ImGui::BeginTable("Points", columns_cnt + 1, flags, ImVec2(0.0f, TEXT_BASE_HEIGHT * 15), 0.0f)) {
+        // Fill Info about cols
+        ImGui::TableSetupColumn("ID");
+        ImGui::TableSetupColumn("X Pos");
+        ImGui::TableSetupColumn("Y Pos");
+        ImGui::TableSetupColumn("Summ Dist");
+        ImGui::TableSetupScrollFreeze(0, 1); // Make row always visible
+        ImGui::TableHeadersRow();
 
-            // fill table with info
-            for (int cell = 0; cell < 12; cell++) {
-                ImGui::TableNextColumn();
-                ImGui::Text("this cell %d", cell);
-            }
-
-            ImGui::EndTable();
+        // fill table with info
+        for (int cell = 0; cell < set_of_points.get_size(); ++cell) {
+            std::list<float>::iterator it;
+            if (distances_info.size() > 0)
+                it = std::next(distances_info.begin(), cell);
+            else
+                it = distances_info.end();
+            auto item = set_of_points[cell];
+            auto data = item->data;
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", data.id);
+            ImGui::TableNextColumn();
+            ImGui::Text("%f", data.position.x);
+            ImGui::TableNextColumn();
+            ImGui::Text("%f", data.position.y);
+            ImGui::TableNextColumn();
+            if (it != distances_info.end())
+                ImGui::Text("%f", *it);
+            else
+                ImGui::Text("unknown");
         }
 
-        ImGui::TreePop();
+        ImGui::EndTable();
     }
 }
 #pragma endregion

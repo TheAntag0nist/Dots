@@ -163,7 +163,6 @@
     <ClCompile Include="..\..\imgui_tables.cpp" />
     <ClCompile Include="..\..\imgui_widgets.cpp" />
     <ClCompile Include="FileDialog\ImGuiFileDialog.cpp" />
-    <ClCompile Include="InnerLogic\points_set\points_set.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -181,6 +180,8 @@
     <ClInclude Include="FileDialog\ImGuiFileDialogConfig.h" />
     <ClInclude Include="FileDialog\stb\stb_image.h" />
     <ClInclude Include="FileDialog\stb\stb_image_resize.h" />
+    <ClInclude Include="InnerLogic\helpers\parser_helper.h" />
+    <ClInclude Include="InnerLogic\helpers\processing_helper.h" />
     <ClInclude Include="InnerLogic\points_set\point.h" />
     <ClInclude Include="InnerLogic\points_set\points_set.h" />
   </ItemGroup>
